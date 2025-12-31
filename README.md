@@ -1,7 +1,4 @@
-# aeci-web-server
-Web server for Animal Eye Consultants of Iowa
 
-#
 # aeci-web-server
 Web server for Animal Eye Consultants of Iowa
 
@@ -25,7 +22,7 @@ This prototype demonstrates:
 - Persist OCR outputs
 
 #
-
+### Flow
 User
  │
  ▼
@@ -42,8 +39,12 @@ OCR Processor (mock / Tesseract)
  │
  ▼
 ocr_results table
-
+#
 ### Docker 
 
-``` docker run -p 8051:8051 aeci-web-server```
+First build the env with Docker
+- ```docker build -t aec-web-server```
+# 
+This will run and locally host the app
+- ``` docker run -p 8051:8051 aeci-web-server``` 
 
