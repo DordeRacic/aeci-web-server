@@ -1,0 +1,9 @@
+python>=3.11,<=3.12
+streamlit
+psycopg2-binary
+sqlalchemy
+python-dotenv
+APSscheduler
+pillow
+#OCR libarary (when decided)
+docker
