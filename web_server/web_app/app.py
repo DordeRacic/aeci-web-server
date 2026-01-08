@@ -32,6 +32,7 @@ def get_model_response(file_bytes, filename):
 if uploaded_file is not None:
     file_bytes = uploaded_file.read()
 
+
     with st.spinner("Processing document..."):
         ocr_text = get_model_response(file_bytes, uploaded_file.name)
 
