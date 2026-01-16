@@ -1,15 +1,56 @@
 #!/usr/bin/env bash
 
-set -e
+set -eo pipefail
 
 ENV_NAME="ocr-env"
 
+echo "=== Creating temporary install directory ==="
+BUILD_ROOT="${HOME}/.tmpbuild"
+mkdir -p "${BUILD_ROOT}"
+
+TMP_WORKDIR="$(mktemp -d -p "${BUILD_ROOT}" torchbuild.XXXXXXXX)"
+export TMPDIR="${TMP_WORKDIR}"
+export PIP_CACHE_DIR="${TMP_WORKDIR}/pip-cache"
+mkdir -p "$PIP_CACHE_DIR"
+
+cleanup() {
+	echo "=== Removing temporary install directory ==="
+	rm -rf "${TMP_WORKDIR}" || true
+}
+trap cleanup EXIT
+
+
 echo "=== Creating conda environment: $ENV_NAME ==="
-conda create -y -n $ENV_NAME python=3.12
+conda create -y -n $ENV_NAME python=3.11
 
 echo "=== Activating environment ==="
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate $ENV_NAME
 
-echo "=== Installing dependencies ==="
-pip install -r install_requirements.txt
+echo "=== Install CUDA toolkit ==="
+conda install -y -c nvidia cuda-toolkit=11.8
+export CUDA_HOME="$CONDA_PREFIX"
+export PATH="$CUDA_HOME/bin:$PATH"
+export LD_LIBRARY_PATH="$CUDA_HOME/lib:$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
+
+echo "=== Clearing cache ==="
+conda clean -a -y || true
+pip cache purge || true
+
+echo "=== Manually installing wheels ==="
+pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu118
+
+echo "=== Installing Flash Attention ==="
+pip install --upgrade pip setuptools wheel ninja packaging psutil numpy
+pip install flash-attn==2.7.3 --no-build-isolation -v
+
+echo "=== Installing model weights ==="
+python -m pip install -U "huggingface-hub>=0.22" hf-transfer
+export HF_HUB_ENABLE_HF_TRANSFER=1
+mkdir -p .ds_ocr/models/DeepSeek-OCR
+python -m huggingface-cli download deepseek-ai/DeepSeek-OCR --local-dir .ds_ocr/models/DeepSeek-OCR --local-dir-use-symlinks False
+
+# echo "=== Installing dependencies ==="
+# pip install -r install_requirements.txt
+
+echo "=== Setup complete ===
