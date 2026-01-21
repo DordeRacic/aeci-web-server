@@ -1,4 +1,4 @@
-import os, tempfile, sys
+import os, sys, tempfile, torch
 from pdf2image import convert_from_path
 from transformers import AutoModel, AutoTokenizer
 
@@ -32,7 +32,7 @@ class Pipeline:
 
 	def _scan(self, images):
 		model = DeepSeek()
-		model.extract(images)
+		model._extract(images)
 
 	def execute(self):
 		with tempfile.TemporaryDirectory() as tmpdir:
@@ -74,14 +74,15 @@ class DeepSeek:
 				self.model_dir,
 				local_files_only=True,
 				trust_remote_code=True,
-				use_safe_tensors=True,
 				attn_implementation='flash_attention_2',
 				torch_dtype=torch.float16
 				)
 		self.model = self.model.to(self.device).eval()
 
-	def _extract(self):
-		pass
+	def _extract(self, images):
+		with tempfile.TemporaryDirectory(prefix='deepseek_ocr_') as tmpdir:
+			for idx, img in enumerate(images, start=1):
+				img_path = os.path.join(tmpdir, f"deepseek_ocr_{idx:05d}.png")
 
 folder = sys.argv[1]
 Pipeline(folder).execute()
