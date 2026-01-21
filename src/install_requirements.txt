@@ -1,4 +1,8 @@
 pdf2image
-transformers
+transformers==4.47.0
 accelerate
+sentencepiece
 safetensors
+addict
+matplotlib
+easydict
