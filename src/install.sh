@@ -38,7 +38,7 @@ conda clean -a -y || true
 pip cache purge || true
 
 echo "=== Manually installing wheels ==="
-pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu118
+pip install --no-cache-dir --default-timeout=600 torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu118
 
 echo "=== Installing Flash Attention ==="
 pip install --upgrade pip setuptools wheel ninja packaging psutil numpy
@@ -48,9 +48,12 @@ echo "=== Installing model weights ==="
 python -m pip install -U "huggingface-hub>=0.22" hf-transfer
 export HF_HUB_ENABLE_HF_TRANSFER=1
 mkdir -p .ds_ocr/models/DeepSeek-OCR
-python -m huggingface-cli download deepseek-ai/DeepSeek-OCR --local-dir .ds_ocr/models/DeepSeek-OCR --local-dir-use-symlinks False
+"$CONDA_PREFIX/bin/hf" download deepseek-ai/DeepSeek-OCR --local-dir .ds_ocr/models/DeepSeek-OCR
 
-# echo "=== Installing dependencies ==="
-# pip install -r install_requirements.txt
+echo "=== Installing dependencies ==="
+pip install -r install_requirements.txt
 
-echo "=== Setup complete ===
+echo "=== Configuring offline settings ==="
+conda env config vars set TRANSFORMERS_OFFLINE=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 HF_HOME="$PWD/.hf_cache"
+
+echo "=== Setup complete ==="

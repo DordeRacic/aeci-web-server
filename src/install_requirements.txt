@@ -1,0 +1,4 @@
+pdf2image
+transformers
+accelerate
+safetensors
