@@ -6,3 +6,4 @@ safetensors
 addict
 matplotlib
 easydict
+einops

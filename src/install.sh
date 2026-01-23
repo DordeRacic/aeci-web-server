@@ -40,10 +40,6 @@ pip cache purge || true
 echo "=== Manually installing wheels ==="
 pip install --no-cache-dir --default-timeout=600 torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu118
 
-echo "=== Installing Flash Attention ==="
-pip install --upgrade pip setuptools wheel ninja packaging psutil numpy
-pip install flash-attn==2.7.3 --no-build-isolation -v
-
 echo "=== Installing model weights ==="
 python -m pip install -U "huggingface-hub>=0.22" hf-transfer
 export HF_HUB_ENABLE_HF_TRANSFER=1

@@ -14,4 +14,8 @@ echo "=== Deleting downloaded models and cache ==="
 rm -rf ./.hf_cache/
 rm -rf ./.ds_ocr/
 
+echo "=== Removing output logs and artifacts ==="
+rm output.out
+rm output.err
+
 echo "=== Cleanup complete ==="
