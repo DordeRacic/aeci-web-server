@@ -1,4 +1,5 @@
 pdf2image
+pymupdf
 transformers==4.47.0
 accelerate
 sentencepiece
