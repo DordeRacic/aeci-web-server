@@ -21,10 +21,10 @@ trap cleanup EXIT
 
 
 echo "=== Creating conda environment: $ENV_NAME ==="
+source "$(conda info --base)/etc/profile.d/conda.sh"
 conda create -y -n $ENV_NAME python=3.11
 
 echo "=== Activating environment ==="
-source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate $ENV_NAME
 
 echo "=== Install CUDA toolkit ==="
@@ -45,6 +45,9 @@ python -m pip install -U "huggingface-hub>=0.22" hf-transfer
 export HF_HUB_ENABLE_HF_TRANSFER=1
 mkdir -p .ds_ocr/models/DeepSeek-OCR
 "$CONDA_PREFIX/bin/hf" download deepseek-ai/DeepSeek-OCR --local-dir .ds_ocr/models/DeepSeek-OCR
+
+echo "=== Installing Markdown and PDF tools ==="
+conda install -y -c conda-forge pandoc wkhtmltopdf
 
 echo "=== Installing dependencies ==="
 pip install -r install_requirements.txt
