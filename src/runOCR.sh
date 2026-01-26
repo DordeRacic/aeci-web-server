@@ -6,4 +6,4 @@
 #SBATCH --time=0-12:00:00
 
 module load cuda
-srun python -u ocr.py ../../redacted-sample/Abaxis-Zoetis
+srun python -u ocr.py ../../redacted-samples/Abaxis-Zoetis

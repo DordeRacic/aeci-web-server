@@ -16,14 +16,15 @@ class Pipeline:
 #|		2) Scan documents with DeepSeek-OCR		|
 #|		3) Convert results back to PDF			|
 #|--------------------------------------------------------------|
+
 	def _preprocess(self):
 
+		img_paths = []
 		for dname in self.documents:
 
 			dpath = os.path.join(self.batch, dname)
 			name = Path(dpath).stem
 			images = convert_from_path(dpath)
-			img_paths = []
 
 			for i, img in enumerate(images,start=1):
 				page_name = f'{name}_page_{i}.png'
