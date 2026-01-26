@@ -1,4 +1,4 @@
-import os, sys, tempfile, torch, shutil
+import os, sys, tempfile, torch, shutil, io, subprocess
 from pdf2image import convert_from_path
 from transformers import AutoModel, AutoTokenizer
 from pathlib import Path
@@ -8,13 +8,13 @@ class Pipeline:
 	def __init__(self, batch):
 		self.batch = batch
 		self.documents = os.listdir(self.batch)
-		self.model = DeepSeek()
 
 #|--------------------------------------------------------------|
 #|		OCR Pipeline					|
 #|								|
 #|		1) Preprocess PDF Documents			|
 #|		2) Scan documents with DeepSeek-OCR		|
+#|		3) Convert results back to PDF			|
 #|--------------------------------------------------------------|
 	def _preprocess(self):
 
@@ -32,28 +32,33 @@ class Pipeline:
 				img_paths.append(out_path)
 		return img_paths
 
-	def _scan(self, images, imdir):
+	def _scan(self, images):
 		with tempfile.TemporaryDirectory() as tmpdir:
 
 			model = DeepSeek(tmpdir)
 
-			predictions = []
+			outdir = os.path.join(Path.cwd(), "outputs")
 			for img in images:
 				result = model._extract(img)
 
 				dname = Path(img).stem
-				out_path = os.path.join(imdir, dname + '_results.mmd'
-				predictions.append(out_path)
+				self._convert(result, dname, outdir)
 
-				shutil.move(result,out_path)
+	def _convert(self, page, name, outdir):
+		out_path = os.path.join(outdir, name + "_results.pdf")
+		tmpdir = Path(page).parent
+		tmppath = os.path.join(tmpdir, "temp.html")
+		cmd = ['pandoc', page, '-f', 'markdown_mmd+raw_html', '-t', 'html', '-o', tmppath]
+		res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+		cmd = ['wkhtmltopdf', '--enable-local-file-access', tmppath, out_path]
+		res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-			return predictions
 
 	def execute(self):
 		with tempfile.TemporaryDirectory() as tmpdir:
 			self.dir = tmpdir
 			images = self._preprocess()
-			preds = self._scan(images,tmpdir)
+			self._scan(images)
 
 class DeepSeek:
 	def __init__(self, outdir, mode='base'):
@@ -107,7 +112,8 @@ class DeepSeek:
 			save_results=True,
 			test_compress=False
 			)
-		pred = os.path.join(self.outdir, "results.mmd")
+
+		pred = os.path.join(self.outdir, "result.mmd")
 		torch.cuda.empty_cache()
 
 		return pred
