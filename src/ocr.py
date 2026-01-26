@@ -1,4 +1,4 @@
-import os, sys, tempfile, torch, shutil, io, subprocess
+import os, sys, tempfile, torch, subprocess, fitz
 from pdf2image import convert_from_path
 from transformers import AutoModel, AutoTokenizer
 from pathlib import Path
@@ -19,47 +19,55 @@ class Pipeline:
 
 	def _preprocess(self):
 
-		img_paths = []
+		dpaths = {}
 		for dname in self.documents:
 
 			dpath = os.path.join(self.batch, dname)
 			name = Path(dpath).stem
 			images = convert_from_path(dpath)
-
+			img_paths = []
 			for i, img in enumerate(images,start=1):
 				page_name = f'{name}_page_{i}.png'
 				out_path = os.path.join(self.dir, page_name)
 				img.save(out_path, 'PNG')
 				img_paths.append(out_path)
-		return img_paths
+			dpaths[name] = img_paths
+		return dpaths
 
-	def _scan(self, images):
+	def _scan(self, docs):
 		with tempfile.TemporaryDirectory() as tmpdir:
 
 			model = DeepSeek(tmpdir)
 
 			outdir = os.path.join(Path.cwd(), "outputs")
-			for img in images:
-				result = model._extract(img)
+			os.makedirs(outdir, exist_ok=True)
 
-				dname = Path(img).stem
-				self._convert(result, dname, outdir)
+			for dname, images in docs.items():
+				out_path = os.path.join(outdir,dname + "_results.pdf")
+				pdf = fitz.open()
+				for img in images:
+					result = model._extract(img)
+					page_path = self._convert(result)
+					with fitz.open(page_path) as pg:
+						pdf.insert_pdf(pg)
+				pdf.save(out_path)
+				pdf.close()
 
-	def _convert(self, page, name, outdir):
-		out_path = os.path.join(outdir, name + "_results.pdf")
+	def _convert(self, page):
 		tmpdir = Path(page).parent
 		tmppath = os.path.join(tmpdir, "temp.html")
+		out_path = os.path.join(tmpdir, "page.pdf")
 		cmd = ['pandoc', page, '-f', 'markdown_mmd+raw_html', '-t', 'html', '-o', tmppath]
 		res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 		cmd = ['wkhtmltopdf', '--enable-local-file-access', tmppath, out_path]
 		res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
+		return out_path
 
 	def execute(self):
 		with tempfile.TemporaryDirectory() as tmpdir:
 			self.dir = tmpdir
-			images = self._preprocess()
-			self._scan(images)
+			docs = self._preprocess()
+			self._scan(docs)
 
 class DeepSeek:
 	def __init__(self, outdir, mode='base'):
