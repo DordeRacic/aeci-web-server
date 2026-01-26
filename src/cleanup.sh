@@ -15,7 +15,7 @@ rm -rf ./.hf_cache/
 rm -rf ./.ds_ocr/
 
 echo "=== Removing output logs and artifacts ==="
-rm output.out
-rm output.err
+if [ -f "output.out" ]; then rm "output.out"; fi
+if [ -f "output.err" ]; then rm "output.err"; fi
 
 echo "=== Cleanup complete ==="
