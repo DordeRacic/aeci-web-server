@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<h1>Upload a file</h1>
+
+<form method="POST" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Upload</button>
+</form>
+
+{% if ocr_output %}
+    <h2>Output</h2>
+    <pre>{{ ocr_output }}</pre>
+{% endif %}
+
+{% if history %}
+    <h2>History</h2>
+    <ul>
+        {% for item in history %}
+            <li><strong>{{ item.filename }}</strong>: {{ item.output }}</li>
+        {% endfor %}
+    </ul>
+{% endif %}
+
+</html>
