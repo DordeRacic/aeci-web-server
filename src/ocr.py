@@ -1,4 +1,8 @@
-import os, sys, tempfile, torch, subprocess, fitz, time, contextlib
+import os, sys
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
+import tempfile, torch, subprocess, fitz, time, contextlib
 from pdf2image import convert_from_path
 from transformers import AutoModel, AutoTokenizer
 from pathlib import Path
@@ -148,7 +152,7 @@ class DeepSeek:
 		# NOTE: DeepSeek outputs bounding box coordinates. These are only visible in stdout.
 		#	Remove the "with" statements and unindent the "result" if you wish to make this output visible again.
 
-		with open(os.devnull, 'w') as fnull:
+		with open(os.devnull, 'w', encoding='utf-8') as fnull:
 			with contextlib.redirect_stdout(fnull):
 				result = self.model.infer(
 					self.tokenizer,
