@@ -2,11 +2,46 @@ import os, sys
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
+import threading, psutil, statistics
 import tempfile, torch, subprocess, fitz, time, contextlib
 from pdf2image import convert_from_path
 from transformers import AutoModel, AutoTokenizer
 from pathlib import Path
 
+class Memory:
+	def __init__(self, interval=0.05):
+		self.interval = interval
+		self._stop = threading.Event()
+		self.samples = []
+		self.proc = psutil.Process(os.getpid())
+		self._thread = None
+
+	def _sample(self):
+		rss = self.proc.memory_info().rss
+		self.samples.append(rss)
+
+	def _run(self):
+		self._sample()
+		while not self._stop.wait(self.interval):
+			self._sample()
+
+	def __enter__(self):
+		self._thread = threading.Thread(target=self._run, daemon=True)
+		self._thread.start()
+		return self
+
+	def __exit__(self, exctype, exc, tb):
+		self._stop.set()
+		self._thread.join()
+
+	def summary(self):
+		rss = [(s / (1024**2)) for s in self.samples]
+		rss_mean = round(statistics.fmean(rss), 2)
+		rss_peak = round(max(rss), 2)
+		return {
+			"rss_mean": rss_mean,
+			"rss_peak": rss_peak,
+			}
 class Pipeline:
 
 	def __init__(self, batch):
@@ -16,19 +51,30 @@ class Pipeline:
 		self.documents = os.listdir(self.batch)
 		self.num_docs = len(self.documents)
 		self.num_pages = 0
-		self.pipestats = {
+		self.runstats = {
 			"S1": None,
 			"S2": None,
 			"S3": None,
 			}
+		self.memstats = {
+			"rss_mean": None,
+			"rss_peak": None,
+			"gpu_peak": None,
+			}
+
+		self.global_rss_peak = 0
 
 	def __str__(self):
 		return f"""
 			\nPipeline executed on {self.num_docs} documents for a total of {self.num_pages} pages.
 			\nRuntime for {self.mode} version of DeepSeek-OCR:
-				\n\tPreprocessing Step: {self.pipestats['S1']} seconds per document
-				\n\tData Extraction Step: {self.pipestats['S2']} seconds per page
-				\n\tPostprocessing Step: {self.pipestats['S3']} seconds per page
+				\n\tPreprocessing Step: {self.runstats['S1']} seconds per document
+				\n\tData Extraction Step: {self.runstats['S2']} seconds per page
+				\n\tPostprocessing Step: {self.runstats['S3']} seconds per page
+			\nMemory Characteristics:
+				\n\tAverage RAM used per page: {self.memstats['rss_mean']}MiB
+				\n\tPeak RAM usage: {self.memstats['rss_peak']}MiB
+				\n\tPeak GPU usage: {self.memstats['gpu_peak']}MiB
 			"""
 #|--------------------------------------------------------------|
 #|		OCR Pipeline					|
@@ -59,7 +105,7 @@ class Pipeline:
 
 			process_time += time.time() - start
 
-		self.pipestats['S1'] = round((process_time / self.num_docs), 2)
+		self.runstats['S1'] = round((process_time / self.num_docs), 2)
 		return dpaths
 
 	def _scan(self, docs):
@@ -72,24 +118,40 @@ class Pipeline:
 
 			extract_time = 0
 			vis_time = 0
+			rss_mean = 0
+			rss_peak = 0
+			gpu_peak = 0
+
 			for dname, images in docs.items():
 				out_path = os.path.join(outdir,dname + "_results.pdf")
 				pdf = fitz.open()
 				for img in images:
+					torch.cuda.reset_peak_memory_stats()
 					start = time.time()
-					result = model._extract(img)
+					with Memory() as mem:
+						result = model._extract(img)
 					extract_time += time.time() - start
+					torch.cuda.synchronize()
 
+					sums = mem.summary()
+					gpu_peak = max(gpu_peak, round(torch.cuda.max_memory_allocated() / (1024**2), 2))
+					rss_mean += sums['rss_mean']
+					rss_peak = max(rss_peak, sums['rss_peak'])
+
+					start = time.time()
 					page_path = self._convert(result)
 					with fitz.open(page_path) as pg:
 						pdf.insert_pdf(pg)
-					vis_time += time.time() - (start + extract_time)
+					vis_time += time.time() - start
 
 				pdf.save(out_path)
 				pdf.close()
 
-		self.pipestats['S2'] = round((extract_time / self.num_pages), 2)
-		self.pipestats['S3'] = round((vis_time / self.num_pages), 2)
+		self.runstats['S2'] = round((extract_time / self.num_pages), 2)
+		self.runstats['S3'] = round((vis_time / self.num_pages), 2)
+		self.memstats['rss_mean'] = round(rss_mean / self.num_pages, 2)
+		self.memstats['rss_peak'] = round(rss_peak, 2)
+		self.memstats['gpu_peak'] = round(gpu_peak, 2)
 
 	def _convert(self, page):
 		tmpdir = Path(page).parent
@@ -173,5 +235,5 @@ class DeepSeek:
 
 folder = sys.argv[1]
 ocr = Pipeline(folder)
-ocr.execute("Base")
+ocr.execute("Large")
 print(ocr)
