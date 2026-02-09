@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+echo "INSTALLATION PREVENTED. DON'T RUN THIS SCRIPT UNTIL NEW MODEL HAS BEEN CHOSEN."
+exit 1
+
 set -eo pipefail
 
 ENV_NAME="ocr-env"
