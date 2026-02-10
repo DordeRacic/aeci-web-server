@@ -1,10 +1,1 @@
-pdf2image
-pymupdf
-transformers==4.47.0
-accelerate
-sentencepiece
-safetensors
-addict
-matplotlib
-easydict
-einops
+REWRITE THIS FILE ONCE NEW MODEL IS CHOSEN

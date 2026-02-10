@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+echo "INSTALLATION PREVENTED. DON'T RUN THIS SCRIPT UNTIL NEW MODEL HAS BEEN CHOSEN."
+exit 1
+
 set -eo pipefail
 
 ENV_NAME="ocr-env"
@@ -39,12 +42,6 @@ pip cache purge || true
 
 echo "=== Manually installing wheels ==="
 pip install --no-cache-dir --default-timeout=600 torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu118
-
-echo "=== Installing model weights ==="
-python -m pip install -U "huggingface-hub>=0.22" hf-transfer
-export HF_HUB_ENABLE_HF_TRANSFER=1
-mkdir -p .ds_ocr/models/DeepSeek-OCR
-"$CONDA_PREFIX/bin/hf" download deepseek-ai/DeepSeek-OCR --local-dir .ds_ocr/models/DeepSeek-OCR
 
 echo "=== Installing Markdown and PDF tools ==="
 conda install -y -c conda-forge pandoc wkhtmltopdf

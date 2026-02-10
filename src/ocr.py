@@ -3,7 +3,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
 import threading, psutil, statistics
-import tempfile, torch, subprocess, fitz, time, contextlib
+import tempfile, torch, subprocess, fitz, time, contextlib, shutil
 from pdf2image import convert_from_path
 from transformers import AutoModel, AutoTokenizer
 from pathlib import Path
@@ -46,7 +46,6 @@ class Pipeline:
 
 	def __init__(self, batch):
 		self.batch = batch
-		self.mode = "Not Selected"
 		self.dir = None
 		self.documents = os.listdir(self.batch)
 		self.num_docs = len(self.documents)
@@ -67,7 +66,7 @@ class Pipeline:
 	def __str__(self):
 		return f"""
 			\nPipeline executed on {self.num_docs} documents for a total of {self.num_pages} pages.
-			\nRuntime for {self.mode} version of DeepSeek-OCR:
+			\nRuntime for ???:
 				\n\tPreprocessing Step: {self.runstats['S1']} seconds per document
 				\n\tData Extraction Step: {self.runstats['S2']} seconds per page
 				\n\tPostprocessing Step: {self.runstats['S3']} seconds per page
@@ -80,7 +79,7 @@ class Pipeline:
 #|		OCR Pipeline					|
 #|								|
 #|		1) Preprocess PDF Documents			|
-#|		2) Scan documents with DeepSeek-OCR		|
+#|		2) Scan documents with OCR			|
 #|		3) Convert results back to PDF			|
 #|--------------------------------------------------------------|
 
@@ -111,7 +110,7 @@ class Pipeline:
 	def _scan(self, docs):
 		with tempfile.TemporaryDirectory() as tmpdir:
 
-			model = DeepSeek(tmpdir,self.mode)
+			model = MODELNAME(tmpdir)
 
 			outdir = os.path.join(Path.cwd(), "outputs")
 			os.makedirs(outdir, exist_ok=True)
@@ -125,7 +124,9 @@ class Pipeline:
 			for dname, images in docs.items():
 				out_path = os.path.join(outdir,dname + "_results.pdf")
 				pdf = fitz.open()
-				for img in images:
+				for i, img in enumerate(images, start=1):
+					raw_out = os.path.join(outdir,dname + f"_raw_result_page{i}.txt")
+					raw_err = os.path.join(outdir,dname + f"_err_log_page{i}.txt")
 					torch.cuda.reset_peak_memory_stats()
 					start = time.time()
 					with Memory() as mem:
@@ -139,9 +140,12 @@ class Pipeline:
 					rss_peak = max(rss_peak, sums['rss_peak'])
 
 					start = time.time()
-					page_path = self._convert(result)
+					page_path = self._convert(result, i)
 					with fitz.open(page_path) as pg:
 						pdf.insert_pdf(pg)
+
+					shutil.move(os.path.join(Path(result).parent,"raw_output.txt"), raw_out)
+					shutil.move(os.path.join(Path(result).parent,"err_log.txt"), raw_err)
 					vis_time += time.time() - start
 
 				pdf.save(out_path)
@@ -153,87 +157,29 @@ class Pipeline:
 		self.memstats['rss_peak'] = round(rss_peak, 2)
 		self.memstats['gpu_peak'] = round(gpu_peak, 2)
 
-	def _convert(self, page):
+	def _convert(self, page, page_num):
 		tmpdir = Path(page).parent
 		tmppath = os.path.join(tmpdir, "temp.html")
-		out_path = os.path.join(tmpdir, "page.pdf")
+		out_path = os.path.join(tmpdir, f"page_{page_num}.pdf")
 		cmd = ['pandoc', page, '-f', 'markdown_mmd+raw_html', '-t', 'html', '-o', tmppath]
 		res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 		cmd = ['wkhtmltopdf', '--enable-local-file-access', tmppath, out_path]
 		res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 		return out_path
 
-	def execute(self, mode="Base"):
+	def execute(self):
 		with tempfile.TemporaryDirectory() as tmpdir:
 			self.dir = tmpdir
-			self.mode = mode
 			docs = self._preprocess()
 			self._scan(docs)
 
-class DeepSeek:
-	def __init__(self, outdir, mode='base'):
+class MODELNAME:
 
-		self.MODES = {
-			'tiny': dict(base_size=512, image_size=512, crop_mode=False),
-			'small': dict(base_size=640, image_size=640, crop_mode=False),
-			'base': dict(base_size=1024, image_size=1024, crop_mode=False),
-			'large': dict(base_size=1280, image_size=1280, crop_mode=False),
-			'gundam': dict(base_size=1024, image_size=640, crop_mode=True)
-			}
-		self.config = self.MODES[mode.lower()]
-
-		self.prompt = '<image>\n<|grounding|>Convert the document to markdown.'
-		self.base_size = self.config['base_size']
-		self.image_size = self.config['image_size']
-		self.crop_mode = self.config['crop_mode']
-
-		self.model_dir = '.ds_ocr/models/DeepSeek-OCR'
-		self.outdir = outdir
-
-		self.device = torch.device('cuda')
-		self.dtype = torch.float32
-
-		self.tokenizer = AutoTokenizer.from_pretrained(
-				self.model_dir,
-				local_files_only=True,
-				trust_remote_code=True
-				)
-
-		self.model = AutoModel.from_pretrained(
-				self.model_dir,
-				local_files_only=True,
-				trust_remote_code=True,
-				attn_implementation='eager',
-				torch_dtype = self.dtype
-				)
-
-		self.model = self.model.to(self.device).eval()
+	def init(self):
+		pass
 
 	def _extract(self, img):
-
-		# NOTE: DeepSeek outputs bounding box coordinates. These are only visible in stdout.
-		#	Remove the "with" statements and unindent the "result" if you wish to make this output visible again.
-
-		with open(os.devnull, 'w', encoding='utf-8') as fnull:
-			with contextlib.redirect_stdout(fnull):
-				result = self.model.infer(
-					self.tokenizer,
-					prompt=self.prompt,
-					image_file = img,
-					output_path = self.outdir,
-					base_size=self.base_size,
-					image_size=self.image_size,
-					crop_mode=self.crop_mode,
-					save_results=True,
-					test_compress=False
-					)
-
-		pred = os.path.join(self.outdir, "result.mmd")
-		torch.cuda.empty_cache()
-
-		return pred
+		pass
 
 folder = sys.argv[1]
 ocr = Pipeline(folder)
-ocr.execute("Large")
-print(ocr)
