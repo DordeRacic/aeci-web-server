@@ -1,12 +1,10 @@
 import os, sys
-sys.stdout.reconfigure(encoding='utf-8')
-sys.stderr.reconfigure(encoding='utf-8')
-
 import threading, psutil, statistics
-import tempfile, torch, subprocess, fitz, time, contextlib, shutil
+import tempfile, torch, subprocess, fitz, time, shutil
 from pdf2image import convert_from_path
-from transformers import AutoModel, AutoTokenizer
 from pathlib import Path
+from nemotron_ocr.inference.pipeline import NemotronOCR
+from PIL import Image, ImageOps
 
 class Memory:
 	def __init__(self, interval=0.05):
@@ -50,6 +48,7 @@ class Pipeline:
 		self.documents = os.listdir(self.batch)
 		self.num_docs = len(self.documents)
 		self.num_pages = 0
+		self.DPI = 300 # Optimize this parameter
 		self.runstats = {
 			"S1": None,
 			"S2": None,
@@ -66,7 +65,7 @@ class Pipeline:
 	def __str__(self):
 		return f"""
 			\nPipeline executed on {self.num_docs} documents for a total of {self.num_pages} pages.
-			\nRuntime for ???:
+			\nRuntime for NemotronOCR:
 				\n\tPreprocessing Step: {self.runstats['S1']} seconds per document
 				\n\tData Extraction Step: {self.runstats['S2']} seconds per page
 				\n\tPostprocessing Step: {self.runstats['S3']} seconds per page
@@ -92,13 +91,16 @@ class Pipeline:
 			start = time.time()
 			dpath = os.path.join(self.batch, dname)
 			name = Path(dpath).stem
-			images = convert_from_path(dpath)
+			images = convert_from_path(dpath, dpi=self.DPI, use_cropbox=True)
 			img_paths = []
 			self.num_pages += len(images)
 			for i, img in enumerate(images,start=1):
 				page_name = f'{name}_page_{i}.png'
 				out_path = os.path.join(self.dir, page_name)
-				img.save(out_path, 'PNG')
+				img = ImageOps.exif_transpose(img) # Standardize page orientation
+				if img.mode != "RGB":
+					img = img.convert("RGB")
+				img.save(out_path, format='PNG')
 				img_paths.append(out_path)
 			dpaths[name] = img_paths
 
@@ -110,7 +112,7 @@ class Pipeline:
 	def _scan(self, docs):
 		with tempfile.TemporaryDirectory() as tmpdir:
 
-			model = MODELNAME(tmpdir)
+			model = OCR(tmpdir)
 
 			outdir = os.path.join(Path.cwd(), "outputs")
 			os.makedirs(outdir, exist_ok=True)
@@ -173,13 +175,20 @@ class Pipeline:
 			docs = self._preprocess()
 			self._scan(docs)
 
-class MODELNAME:
+class OCR:
 
-	def init(self):
-		pass
+	def __init__(self, tmpdir):
+		self.model = NemotronOCR()
+		self.dir = tmpdir
+		self.merge_level="paragraph" # Determine which groups results the best
+		self.visualize=False # Set to True and incorporate visualizaiton later
 
 	def _extract(self, img):
-		pass
+		results = self.model(img, merge_level=self.merge_level, visualize=self.visualize)
+		print(results)
+		sys.exit()
+		return results
 
 folder = sys.argv[1]
-ocr = Pipeline(folder)
+pipe = Pipeline(folder)
+pipe.execute()
