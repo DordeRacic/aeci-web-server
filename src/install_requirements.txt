@@ -1,1 +1,3 @@
-REWRITE THIS FILE ONCE NEW MODEL IS CHOSEN
+pymupdf
+psutil
+pdf2image
