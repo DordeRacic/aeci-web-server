@@ -71,11 +71,6 @@ pushd nemotron-ocr-v1/nemotron-ocr >/dev/null
 pip install --no-cache-dir -v .
 popd >/dev/null
 
-echo "=== Updating libstdcxx-ng version ==="
-conda remove libstdcxx-ng --force -y
-conda install -y -c conda-forge "libstdcxx-ng>=13"
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
-
 echo "=== Installing dependencies ==="
 pip install -r install_requirements.txt
 
