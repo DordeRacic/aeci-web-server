@@ -112,7 +112,7 @@ class Pipeline:
 	def _scan(self, docs):
 		with tempfile.TemporaryDirectory() as tmpdir:
 
-			model = OCR(tmpdir)
+			model = OCR(self.dir)
 
 			outdir = os.path.join(Path.cwd(), "outputs")
 			os.makedirs(outdir, exist_ok=True)
@@ -127,12 +127,10 @@ class Pipeline:
 				out_path = os.path.join(outdir,dname + "_results.pdf")
 				pdf = fitz.open()
 				for i, img in enumerate(images, start=1):
-					raw_out = os.path.join(outdir,dname + f"_raw_result_page{i}.txt")
-					raw_err = os.path.join(outdir,dname + f"_err_log_page{i}.txt")
 					torch.cuda.reset_peak_memory_stats()
 					start = time.time()
 					with Memory() as mem:
-						result = model._extract(img)
+						result, result_path = model._extract(img)
 					extract_time += time.time() - start
 					torch.cuda.synchronize()
 
@@ -142,12 +140,10 @@ class Pipeline:
 					rss_peak = max(rss_peak, sums['rss_peak'])
 
 					start = time.time()
-					page_path = self._convert(result, i)
-					with fitz.open(page_path) as pg:
-						pdf.insert_pdf(pg)
+					page = self._convert(result_path)
+					pdf.insert_pdf(page)
+					page.close()
 
-					shutil.move(os.path.join(Path(result).parent,"raw_output.txt"), raw_out)
-					shutil.move(os.path.join(Path(result).parent,"err_log.txt"), raw_err)
 					vis_time += time.time() - start
 
 				pdf.save(out_path)
@@ -159,15 +155,12 @@ class Pipeline:
 		self.memstats['rss_peak'] = round(rss_peak, 2)
 		self.memstats['gpu_peak'] = round(gpu_peak, 2)
 
-	def _convert(self, page, page_num):
-		tmpdir = Path(page).parent
-		tmppath = os.path.join(tmpdir, "temp.html")
-		out_path = os.path.join(tmpdir, f"page_{page_num}.pdf")
-		cmd = ['pandoc', page, '-f', 'markdown_mmd+raw_html', '-t', 'html', '-o', tmppath]
-		res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-		cmd = ['wkhtmltopdf', '--enable-local-file-access', tmppath, out_path]
-		res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-		return out_path
+	def _convert(self, img):
+		image = fitz.open(img)
+		page = image.convert_to_pdf()
+		page = fitz.open("pdf", page)
+		image.close()
+		return page
 
 	def execute(self):
 		with tempfile.TemporaryDirectory() as tmpdir:
@@ -179,15 +172,16 @@ class OCR:
 
 	def __init__(self, tmpdir):
 		self.model = NemotronOCR()
-		self.dir = tmpdir
+		self.imdir = tmpdir
 		self.merge_level="paragraph" # Determine which groups results the best
-		self.visualize=False # Set to True and incorporate visualizaiton later
+		self.visualize=True # Annotate results on original page for visualization.
 
 	def _extract(self, img):
 		results = self.model(img, merge_level=self.merge_level, visualize=self.visualize)
-		print(results)
-		sys.exit()
-		return results
+		imname = Path(img).stem
+		vis_name = imname + "-annotated.png"
+		result_path = os.path.join(self.imdir,vis_name)
+		return results, result_path
 
 folder = sys.argv[1]
 pipe = Pipeline(folder)
