@@ -48,7 +48,8 @@ class Pipeline:
 		self.documents = os.listdir(self.batch)
 		self.num_docs = len(self.documents)
 		self.num_pages = 0
-		self.DPI = 300 # Optimize this parameter
+		self.DPI = 300 # Optimizable
+		self.TARGET_HEIGHT = 1500 # Optimizable
 		self.runstats = {
 			"S1": None,
 			"S2": None,
@@ -91,15 +92,27 @@ class Pipeline:
 			start = time.time()
 			dpath = os.path.join(self.batch, dname)
 			name = Path(dpath).stem
+
+			# Convert multi-page PDF to list of images. Standardize the DPI of images.
 			images = convert_from_path(dpath, dpi=self.DPI, use_cropbox=True)
 			img_paths = []
 			self.num_pages += len(images)
 			for i, img in enumerate(images,start=1):
 				page_name = f'{name}_page_{i}.png'
 				out_path = os.path.join(self.dir, page_name)
-				img = ImageOps.exif_transpose(img) # Standardize page orientation
+
+				# Standardize page orientation
+				img = ImageOps.exif_transpose(img)
+
+				# Ensure image is RGB rather than greyscale or cmyk
 				if img.mode != "RGB":
 					img = img.convert("RGB")
+
+				# Standardize pixel height
+				w, h = img.size
+				if h != self.TARGET_HEIGHT:
+					scale = self.TARGET_HEIGHT / float(h)
+					img = img.resize((int(round(w*scale)), int(round(h*scale))), resample=Image.LANCZOS)
 				img.save(out_path, format='PNG')
 				img_paths.append(out_path)
 			dpaths[name] = img_paths
@@ -186,3 +199,4 @@ class OCR:
 folder = sys.argv[1]
 pipe = Pipeline(folder)
 pipe.execute()
+print(pipe)
