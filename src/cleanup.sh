@@ -12,7 +12,7 @@ conda remove -y --name $ENV_NAME --all
 
 echo "=== Deleting downloaded models and cache ==="
 rm -rf ./.hf_cache/
-rm -rf ./.ds_ocr/
+rm -rf nemotron-ocr-v1
 
 echo "=== Removing output logs and artifacts ==="
 if [ -f "output.out" ]; then rm "output.out"; fi

@@ -1,12 +1,10 @@
 import os, sys
-sys.stdout.reconfigure(encoding='utf-8')
-sys.stderr.reconfigure(encoding='utf-8')
-
 import threading, psutil, statistics
-import tempfile, torch, subprocess, fitz, time, contextlib, shutil
+import tempfile, torch, subprocess, fitz, time, shutil
 from pdf2image import convert_from_path
-from transformers import AutoModel, AutoTokenizer
 from pathlib import Path
+from nemotron_ocr.inference.pipeline import NemotronOCR
+from PIL import Image, ImageOps
 
 class Memory:
 	def __init__(self, interval=0.05):
@@ -50,6 +48,8 @@ class Pipeline:
 		self.documents = os.listdir(self.batch)
 		self.num_docs = len(self.documents)
 		self.num_pages = 0
+		self.DPI = 300 # Optimizable
+		self.TARGET_HEIGHT = 1500 # Optimizable
 		self.runstats = {
 			"S1": None,
 			"S2": None,
@@ -66,7 +66,7 @@ class Pipeline:
 	def __str__(self):
 		return f"""
 			\nPipeline executed on {self.num_docs} documents for a total of {self.num_pages} pages.
-			\nRuntime for ???:
+			\nRuntime for NemotronOCR:
 				\n\tPreprocessing Step: {self.runstats['S1']} seconds per document
 				\n\tData Extraction Step: {self.runstats['S2']} seconds per page
 				\n\tPostprocessing Step: {self.runstats['S3']} seconds per page
@@ -92,13 +92,28 @@ class Pipeline:
 			start = time.time()
 			dpath = os.path.join(self.batch, dname)
 			name = Path(dpath).stem
-			images = convert_from_path(dpath)
+
+			# Convert multi-page PDF to list of images. Standardize the DPI of images.
+			images = convert_from_path(dpath, dpi=self.DPI, use_cropbox=True)
 			img_paths = []
 			self.num_pages += len(images)
 			for i, img in enumerate(images,start=1):
 				page_name = f'{name}_page_{i}.png'
 				out_path = os.path.join(self.dir, page_name)
-				img.save(out_path, 'PNG')
+
+				# Standardize page orientation
+				img = ImageOps.exif_transpose(img)
+
+				# Ensure image is RGB rather than greyscale or cmyk
+				if img.mode != "RGB":
+					img = img.convert("RGB")
+
+				# Standardize pixel height
+				w, h = img.size
+				if h != self.TARGET_HEIGHT:
+					scale = self.TARGET_HEIGHT / float(h)
+					img = img.resize((int(round(w*scale)), int(round(h*scale))), resample=Image.LANCZOS)
+				img.save(out_path, format='PNG')
 				img_paths.append(out_path)
 			dpaths[name] = img_paths
 
@@ -110,7 +125,7 @@ class Pipeline:
 	def _scan(self, docs):
 		with tempfile.TemporaryDirectory() as tmpdir:
 
-			model = MODELNAME(tmpdir)
+			model = OCR(self.dir)
 
 			outdir = os.path.join(Path.cwd(), "outputs")
 			os.makedirs(outdir, exist_ok=True)
@@ -125,12 +140,10 @@ class Pipeline:
 				out_path = os.path.join(outdir,dname + "_results.pdf")
 				pdf = fitz.open()
 				for i, img in enumerate(images, start=1):
-					raw_out = os.path.join(outdir,dname + f"_raw_result_page{i}.txt")
-					raw_err = os.path.join(outdir,dname + f"_err_log_page{i}.txt")
 					torch.cuda.reset_peak_memory_stats()
 					start = time.time()
 					with Memory() as mem:
-						result = model._extract(img)
+						result, result_path = model._extract(img)
 					extract_time += time.time() - start
 					torch.cuda.synchronize()
 
@@ -140,12 +153,10 @@ class Pipeline:
 					rss_peak = max(rss_peak, sums['rss_peak'])
 
 					start = time.time()
-					page_path = self._convert(result, i)
-					with fitz.open(page_path) as pg:
-						pdf.insert_pdf(pg)
+					page = self._convert(result_path)
+					pdf.insert_pdf(page)
+					page.close()
 
-					shutil.move(os.path.join(Path(result).parent,"raw_output.txt"), raw_out)
-					shutil.move(os.path.join(Path(result).parent,"err_log.txt"), raw_err)
 					vis_time += time.time() - start
 
 				pdf.save(out_path)
@@ -157,15 +168,12 @@ class Pipeline:
 		self.memstats['rss_peak'] = round(rss_peak, 2)
 		self.memstats['gpu_peak'] = round(gpu_peak, 2)
 
-	def _convert(self, page, page_num):
-		tmpdir = Path(page).parent
-		tmppath = os.path.join(tmpdir, "temp.html")
-		out_path = os.path.join(tmpdir, f"page_{page_num}.pdf")
-		cmd = ['pandoc', page, '-f', 'markdown_mmd+raw_html', '-t', 'html', '-o', tmppath]
-		res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-		cmd = ['wkhtmltopdf', '--enable-local-file-access', tmppath, out_path]
-		res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-		return out_path
+	def _convert(self, img):
+		image = fitz.open(img)
+		page = image.convert_to_pdf()
+		page = fitz.open("pdf", page)
+		image.close()
+		return page
 
 	def execute(self):
 		with tempfile.TemporaryDirectory() as tmpdir:
@@ -173,13 +181,22 @@ class Pipeline:
 			docs = self._preprocess()
 			self._scan(docs)
 
-class MODELNAME:
+class OCR:
 
-	def init(self):
-		pass
+	def __init__(self, tmpdir):
+		self.model = NemotronOCR()
+		self.imdir = tmpdir
+		self.merge_level="paragraph" # Determine which groups results the best
+		self.visualize=True # Annotate results on original page for visualization.
 
 	def _extract(self, img):
-		pass
+		results = self.model(img, merge_level=self.merge_level, visualize=self.visualize)
+		imname = Path(img).stem
+		vis_name = imname + "-annotated.png"
+		result_path = os.path.join(self.imdir,vis_name)
+		return results, result_path
 
 folder = sys.argv[1]
-ocr = Pipeline(folder)
+pipe = Pipeline(folder)
+pipe.execute()
+print(pipe)
